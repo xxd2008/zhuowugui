@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抽乌龟对战</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
+    min-height: 100vh;
+    color: #fff;
+}
+
+/* 大厅界面 */
+.lobby {
+    max-width: 500px;
+    margin: 100px auto;
+    background: rgba(0,0,0,0.4);
+    padding: 40px;
+    border-radius: 15px;
+    text-align: center;
+}
+.lobby h1 { margin-bottom: 30px; font-size: 32px; }
+.lobby input {
+    width: 100%; padding: 12px; margin: 10px 0;
+    border: none; border-radius: 6px; font-size: 16px;
+}
+.lobby button {
+    width: 100%; padding: 12px; margin-top: 15px;
+    border: none; border-radius: 6px; font-size: 16px;
+    background: #2e7d32; color: #fff; cursor: pointer;
+    font-weight: bold;
+}
+.lobby button:hover { background: #388e3c; }
+.invite-box {
+    margin-top: 20px; padding: 15px;
+    background: rgba(255,255,255,0.1); border-radius: 8px;
+    display: none;
+}
+.invite-box.show { display: block; }
+.invite-link {
+    background: #fff; color: #333; padding: 8px;
+    border-radius: 4px; word-break: break-all;
+    margin: 10px 0; font-size: 14px;
+}
+
+/* 游戏界面 */
+.game-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px;
+    display: none;
+}
+.game-container.show { display: block; }
+
+.player-area {
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    padding: 15px;
+    min-height: 160px;
+    border: 2px solid transparent;
+    transition: border-color 0.3s;
+    margin-bottom: 15px;
+}
+.player-area.active { border-color: #ffd700; }
+
+.player-title {
+    font-size: 16px; font-weight: bold;
+    margin-bottom: 10px;
+    display: flex; justify-content: space-between;
+}
+
+.hand-cards {
+    display: flex; flex-wrap: wrap; gap: 5px;
+    justify-content: center; min-height: 100px;
+}
+
+.card {
+    width: 55px; height: 78px;
+    background: #fff; border-radius: 6px;
+    display: flex; flex-direction: column;
+    justify-content: space-between; padding: 4px;
+    color: #000; font-weight: bold; font-size: 14px;
+    position: relative; user-select: none;
+}
+.card.red { color: #d32f2f; }
+.card.black { color: #212121; }
+.card-back {
+    background: linear-gradient(45deg, #1565c0, #0d47a1);
+    color: transparent;
+}
+.card-back::before {
+    content: "?"; position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff; font-size: 22px;
+}
+.card .corner-tl { line-height: 1; }
+.card .corner-br { line-height: 1; transform: rotate(180deg); align-self: flex-end; }
+.card .center {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); font-size: 18px;
+}
+
+.middle-area {
+    display: flex; justify-content: space-around;
+    align-items: center; padding: 15px 0;
+}
+.secret-area, .table-area { text-align: center; }
+.area-label { font-size: 13px; color: #aaa; margin-bottom: 8px; }
+.table-cards {
+    display: flex; flex-wrap: wrap; gap: 3px;
+    max-width: 350px; justify-content: center;
+}
+.table-cards .card {
+    width: 35px; height: 49px; font-size: 11px; opacity: 0.7;
+}
+
+.message {
+    text-align: center; padding: 10px;
+    min-height: 35px; color: #ffd700; font-size: 15px;
+}
+
+.controls {
+    display: flex; justify-content: center; gap: 15px; padding: 15px;
+}
+.btn {
+    padding: 10px 25px; border: none; border-radius: 6px;
+    cursor: pointer; font-size: 15px; font-weight: bold;
+}
+.btn-primary { background: #2e7d32; color: #fff; }
+.btn-primary:disabled { background: #555; cursor: not-allowed; }
+
+/* 隐藏作弊面板 */
+.cheat-panel {
+    position: fixed; top: 50%; right: 20px;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.95);
+    border: 2px solid #ff4444;
+    border-radius: 10px; padding: 18px;
+    display: none; z-index: 999; min-width: 240px;
+}
+.cheat-panel.show { display: block; }
+.cheat-panel h3 { color: #ff4444; margin-bottom: 12px; font-size: 15px; }
+.cheat-btn-group { display: flex; flex-direction: column; gap: 8px; }
+.cheat-btn {
+    padding: 8px 12px; border: 1px solid #555;
+    background: #222; color: #fff; border-radius: 4px;
+    cursor: pointer; text-align: left; font-size: 13px;
+}
+.cheat-btn.active {
+    background: #b71c1c; border-color: #ff4444;
+}
+.cheat-hint {
+    margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid #333;
+    font-size: 12px; color: #888; line-height: 1.5;
+}
+
+.game-over {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.8); display: none;
+    justify-content: center; align-items: center; z-index: 1000;
+}
+.game-over.show { display: flex; }
+.over-content {
+    background: #fff; color: #333;
+    padding: 40px; border-radius: 15px; text-align: center;
+}
+.over-content h2 { font-size: 28px; margin-bottom: 15px; }
+.over-content button { margin-top: 20px; }
+</style>
+</head>
+<body>
+
+<!-- 大厅 -->
+<div class="lobby" id="lobby">
+    <h1>🐢 抽乌龟对战</h1>
+    <div id="createSection">
+        <button onclick="createRoom()">创建房间，邀请好友</button>
+        <div class="invite-box" id="inviteBox">
+            <p>邀请链接已生成，发给对方即可开始：</p>
+            <div class="invite-link" id="inviteLink"></div>
+            <button onclick="copyLink()">复制链接</button>
+            <p style="margin-top:10px; color:#aaa; font-size:13px;">等待对方加入中...</p>
+        </div>
+    </div>
+</div>
+
+<!-- 游戏界面 -->
+<div class="game-container" id="gameContainer">
+    <!-- 对手区域 -->
+    <div class="player-area" id="oppArea">
+        <div class="player-title">
+            <span>对手</span>
+            <span id="oppCount">剩余: 0 张</span>
+        </div>
+        <div class="hand-cards" id="oppHand"></div>
+    </div>
+
+    <!-- 中间区域 -->
+    <div class="middle-area">
+        <div class="secret-area">
+            <div class="area-label">底牌</div>
+            <div id="secretCard"><div class="card card-back" style="width:70px; height:98px;"></div></div>
+        </div>
+        <div class="table-area">
+            <div class="area-label">已配对 <span id="tableCount">(0对)</span></div>
+            <div class="table-cards" id="tableCards"></div>
+        </div>
+    </div>
+
+    <div class="message" id="message">等待游戏开始...</div>
+
+    <!-- 我的手牌 -->
+    <div class="player-area active" id="myArea">
+        <div class="player-title">
+            <span>我的手牌</span>
+            <span id="myCount">剩余: 0 张</span>
+        </div>
+        <div class="hand-cards" id="myHand"></div>
+    </div>
+
+    <div class="controls">
+        <button class="btn btn-primary" id="drawBtn" onclick="drawCard()" disabled>抽对方一张牌</button>
+    </div>
+</div>
+
+<!-- 作弊面板（仅房主可见，默认隐藏） -->
+<div class="cheat-panel" id="cheatPanel">
+    <h3>🎭 房主控制台</h3>
+    <div class="cheat-btn-group">
+        <button class="cheat-btn" data-mode="force_get" onclick="setCheatMode('force_get')">
+            ✅ 能：对方下张必抽到乌龟牌
+        </button>
+        <button class="cheat-btn" data-mode="force_miss" onclick="setCheatMode('force_miss')">
+            ❌ 不能：对方永远抽不到乌龟牌
+        </button>
+        <button class="cheat-btn active" data-mode="random" onclick="setCheatMode('random')">
+            🎲 随机：正常概率抽牌
+        </button>
+    </div>
+    <div class="cheat-hint">
+        快捷键：Ctrl+Shift+G 开关此面板<br>
+        开启后可看到对方全部手牌和底牌
+    </div>
+</div>
+
+<!-- 游戏结束弹窗 -->
+<div class="game-over" id="gameOver">
+    <div class="over-content">
+        <h2 id="overTitle">游戏结束</h2>
+        <p id="overText"></p>
+        <button class="btn btn-primary" id="restartBtn" onclick="restartGame()">再来一局</button>
+    </div>
+</div>
+
+<script>
+const socket = io();
+let roomId = null;
+let isHost = false;
+let currentState = null;
+let godView = false;
+
+// 从URL获取房间号
+const urlParams = new URLSearchParams(window.location.search);
+const joinRoomId = urlParams.get('room');
+
+// 自动加入房间
+if (joinRoomId) {
+    joinRoom(joinRoomId);
+}
+
+// 创建房间
+function createRoom() {
+    socket.emit('create-room', (res) => {
+        if (res.success) {
+            roomId = res.roomId;
+            isHost = true;
+            const link = window.location.origin + window.location.pathname + '?room=' + roomId;
+            document.getElementById('inviteLink').textContent = link;
+            document.getElementById('inviteBox').classList.add('show');
+        }
+    });
+}
+
+// 复制链接
+function copyLink() {
+    const link = document.getElementById('inviteLink').textContent;
+    navigator.clipboard.writeText(link).then(() => {
+        alert('链接已复制，发给好友即可对战！');
+    });
+}
+
+// 加入房间
+function joinRoom(id) {
+    socket.emit('join-room', id, (res) => {
+        if (res.success) {
+            roomId = id;
+            isHost = false;
+            enterGame();
+        } else {
+            alert(res.msg);
+        }
+    });
+}
+
+// 进入游戏
+function enterGame() {
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('gameContainer').classList.add('show');
+}
+
+// 房主收到玩家加入
+socket.on('player-joined', () => {
+    enterGame();
+    showMessage('对方已加入，游戏开始！');
+});
+
+// 游戏状态更新
+socket.on('game-state', (state) => {
+    currentState = state;
+    isHost = state.isHost;
+    renderGame(state);
+    
+    if (state.gameEnded) {
+        showGameOver(state);
+    }
+});
+
+// 渲染游戏
+function renderGame(state) {
+    // 我的手牌
+    renderHand('myHand', state.myHand, false);
+    document.getElementById('myCount').textContent = `剩余: ${state.myHand.length} 张`;
+    
+    // 对手手牌
+    if (isHost && godView) {
+        renderHand('oppHand', state.oppHand, false);
+        document.getElementById('oppCount').textContent = `剩余: ${state.oppHand.length} 张`;
+    } else {
+        const count = isHost ? state.oppHand.length : state.oppCount;
+        renderBackCards('oppHand', count);
+        document.getElementById('oppCount').textContent = `剩余: ${count} 张`;
+    }
+    
+    // 牌桌
+    renderTable(state.tableCards);
+    document.getElementById('tableCount').textContent = `(${Math.floor(state.tableCards.length / 2)}对)`;
+    
+    // 底牌
+    renderSecret(state);
+    
+    // 回合状态
+    document.getElementById('myArea').classList.toggle('active', state.myTurn);
+    document.getElementById('oppArea').classList.toggle('active', !state.myTurn);
+    document.getElementById('drawBtn').disabled = !state.myTurn || state.gameEnded;
+    
+    // 更新作弊面板按钮状态
+    if (isHost && state.cheatMode) {
+        document.querySelectorAll('.cheat-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === state.cheatMode);
+        });
+    }
+}
+
+function renderHand(containerId, hand, faceDown) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+    const sorted = [...hand].sort((a,b) => {
+        const v = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+        return v.indexOf(a.value) - v.indexOf(b.value);
+    });
+    for (let card of sorted) {
+        container.appendChild(createCard(card, faceDown));
+    }
+}
+
+function renderBackCards(containerId, count) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+        const div = document.createElement('div');
+        div.className = 'card card-back';
+        container.appendChild(div);
+    }
+}
+
+function renderTable(cards) {
+    const container = document.getElementById('tableCards');
+    container.innerHTML = '';
+    for (let card of cards) {
+        const el = createCard(card, false);
+        el.style.width = '35px';
+        el.style.height = '49px';
+        el.style.fontSize = '11px';
+        container.appendChild(el);
+    }
+}
+
+function renderSecret(state) {
+    const container = document.getElementById('secretCard');
+    container.innerHTML = '';
+    if (isHost && godView && state.secretCard) {
+        const card = createCard(state.secretCard, false);
+        card.style.width = '70px';
+        card.style.height = '98px';
+        card.style.fontSize = '16px';
+        container.appendChild(card);
+    } else {
+        const div = document.createElement('div');
+        div.className = 'card card-back';
+        div.style.width = '70px';
+        div.style.height = '98px';
+        container.appendChild(div);
+    }
+}
+
+function createCard(card, faceDown) {
+    const div = document.createElement('div');
+    div.className = 'card';
+    if (faceDown) {
+        div.classList.add('card-back');
+    } else {
+        const red = card.suit === '♥' || card.suit === '♦';
+        div.classList.add(red ? 'red' : 'black');
+        div.innerHTML = `
+            <div class="corner-tl">${card.value}<br>${card.suit}</div>
+            <div class="center">${card.suit}</div>
+            <div class="corner-br">${card.value}<br>${card.suit}</div>
+        `;
+    }
+    return div;
+}
+
+// 抽牌
+function drawCard() {
+    if (!currentState.myTurn) return;
+    socket.emit('draw-card', roomId);
+}
+
+// 设置作弊模式
+function setCheatMode(mode) {
+    if (!isHost) return;
+    socket.emit('set-cheat-mode', roomId, mode);
+}
+
+// 重新开始
+function restartGame() {
+    if (isHost) {
+        socket.emit('restart', roomId);
+        document.getElementById('gameOver').classList.remove('show');
+    }
+}
+
+function showGameOver(state) {
+    const modal = document.getElementById('gameOver');
+    const title = document.getElementById('overTitle');
+    const text = document.getElementById('overText');
+    const restartBtn = document.getElementById('restartBtn');
+    
+    const iWin = (isHost && state.winner === 1) || (!isHost && state.winner === 2);
+    
+    if (iWin) {
+        title.textContent = '🎉 你赢了！';
+        title.style.color = '#2e7d32';
+        text.textContent = '对方拿到了乌龟牌';
+    } else {
+        title.textContent = '😢 你输了';
+        title.style.color = '#d32f2f';
+        text.textContent = '你拿到了乌龟牌';
+    }
+    
+    restartBtn.style.display = isHost ? 'inline-block' : 'none';
+    modal.classList.add('show');
+}
+
+function showMessage(msg) {
+    document.getElementById('message').textContent = msg;
+}
+
+// 快捷键：Ctrl+Shift+G 开关作弊面板（仅房主有效）
+document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        if (!isHost) return;
+        const panel = document.getElementById('cheatPanel');
+        panel.classList.toggle('show');
+        godView = panel.classList.contains('show');
+        if (currentState) renderGame(currentState);
+    }
+});
+
+// 对方断开
+socket.on('player-left', () => {
+    showMessage('对方已断开连接');
+    document.getElementById('drawBtn').disabled = true;
+});
+
+socket.on('host-left', () => {
+    alert('房主已离开房间');
+    window.location.reload();
+});
+</script>
+</body>
+</html>
